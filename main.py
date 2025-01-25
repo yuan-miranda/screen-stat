@@ -81,6 +81,7 @@ def list_processes():
                 'uptime_seconds': current_uptime_seconds + loaded_uptime_seconds,
                 'uptime_seconds_old': current_uptime_seconds
             }
+
         # not in current processes (might be closed)
         else:
             new_processes[name] = {
