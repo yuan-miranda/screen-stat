@@ -1,0 +1,178 @@
+import psutil
+from datetime import datetime
+import time
+import json
+import os
+
+current_date = datetime.now().strftime("%Y-%m-%d")
+LOG_FILE = f"logs/{current_date}.json"
+
+def list_processes():
+    current_processes = {}
+    loaded_processes = {}
+    new_processes = {}
+
+    # load log file
+    if os.path.exists(LOG_FILE):
+        with open(LOG_FILE, "r") as f:
+            if os.stat(LOG_FILE).st_size != 0:
+                loaded_processes = json.load(f)
+
+    # current process
+    for proc in psutil.process_iter(['pid', 'name', 'username', 'create_time']):
+        try:
+            info = proc.info
+
+            # skip if username is None
+            # if info['username'] is None:
+            #     continue
+
+            # skip if not "Notepad.exe"
+            # if info['name'] != "Notepad.exe":
+            #     continue
+
+            start_time = datetime.fromtimestamp(info['create_time'])
+            
+            pid = info['pid']
+            name = info['name']
+            uptime = datetime.now() - start_time
+            total_seconds = uptime.total_seconds()
+
+
+            if name not in current_processes or total_seconds > float(current_processes[name]['uptime_seconds']):
+                
+                current_processes[name] = {
+                    'pid': pid,
+                    'uptime_seconds': total_seconds,
+                    'uptime_seconds_old': total_seconds
+                }
+
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+
+
+    # add current processes that are not in the loaded_processes to new_processes
+    loaded_processes_set = set(loaded_processes)
+    new_processes = {name: process for name, process in current_processes.items() if name not in loaded_processes_set}
+    current_pids = {process['pid'] for process in current_processes.values()}
+
+    # scenario 1: initial run then quit, second run with same loaded, third run with same loaded
+    # ---------------------------------------- FIRST RUN NO LOAD
+    # [current process (first time)]
+    #   current- pid10 20hr
+    #   outcome- pid10
+    #   current_old- current (pid10 20hr)
+    #   END
+    # ---------------------------------------- SECOND RUN SAME LOADED
+    # [same process (take over the loaded pid)]
+    #   loaded - pid10 20hr
+    #   current- pid10 21hr
+    #   outcome- (current - loaded_current_old) + loaded
+    #            (21hr - 20hr)=1hr + 20hr = 21hr
+    #   loaded - outcome (pid10 21hr)
+    #   current_old- current (pid10 21hr)
+    #   END
+    # ---------------------------------------- THIRD RUN SAME LOADED
+    # [same process (take over the loaded pid)]
+    #   loaded - pid10 21hr
+    #   current- pid10 22hr
+    #   outcome- (current - loaded_current_old) + loaded
+    #            (22hr - 21hr)=1hr + 21hr = 22hr
+    #   loaded - outcome (pid10 22hr)
+    #   current_old- current (pid10 22hr)
+    #   END
+    
+    # scenario 2: initial run with same loaded, second run with same loaded (same with scenario 1)
+    # ---------------------------------------- FIRST RUN SAME LOADED
+    # [current process (first time)]
+    #   current- pid10 20hr
+    #   outcome- pid10
+    #   current_old- current (pid10 20hr)
+    #   CONTINUE
+    # ---------------------------------------- FIRST RUN SAME LOADED
+    # [same process (take over the loaded pid)]
+    #   loaded - pid10 20hr
+    #   current- pid10 21hr
+    #   outcome- (current - loaded_current_old) + loaded
+    #            (21hr - 20hr)=1hr + 20hr = 21hr
+    #   loaded - outcome (pid10 21hr)
+    #   current_old- current (pid10 21hr)
+    #   END
+    # ---------------------------------------- SECOND RUN SAME LOADED
+    # [same process (take over the loaded pid)]
+    #   loaded - pid10 21hr
+    #   current- pid10 22hr
+    #   outcome- (current - loaded_current_old) + loaded
+    #            (22hr - 21hr)=1hr + 21hr = 22hr
+    #   loaded - outcome (pid10 22hr)
+    #   current_old- current (pid10 22hr)
+    #   END
+
+    # scenario 3: initial run then quit, second run with different current, third run with same loaded
+    # ---------------------------------------- FIRST RUN NO LOAD
+    # [current process (first time)]
+    #   current- pid10 20hr
+    #   outcome- pid10
+    #   current_old- current (pid10 20hr)
+    #   END
+    # ---------------------------------------- SECOND RUN DIFFERENT CURRENT
+    # [different process (take over the current pid)]
+    #   loaded - pid10 20hr
+    #   current- pid1 3hr
+    #   outcome- pid1 + pid10
+    #            3hr + 20hr = 23hr
+    #   loaded - outcome (pid1 23hr)
+    #   current_old- current (pid1 3hr)
+    #   END
+    # ---------------------------------------- THIRD RUN SAME LOADED
+    # [same process (take over the loaded pid)]
+    #   loaded - pid1 23hr
+    #   current- pid1 5hr
+    #   outcome- (current - loaded_current_old) + loaded
+    #            (5hr - 3hr)=2hr + 23hr = 25hr
+    #   loaded - outcome (pid1 25hr)
+    #   current_old- current (pid1 5hr)
+    #   END
+
+    # formulas
+    # same process: (current - loaded_current_old) + loaded
+    # different process: current + loaded
+
+    for name, process in loaded_processes.items():
+        loaded_pid = process['pid']
+        loaded_uptime_seconds = process['uptime_seconds']
+        loaded_uptime_seconds_old = process['uptime_seconds_old']
+
+        # same process
+        if name in current_processes and loaded_pid in current_pids:
+            current_uptime_seconds = current_processes[name]['uptime_seconds']
+            offset_uptime_seconds = current_uptime_seconds - loaded_uptime_seconds_old
+            new_processes[name] = {
+                'pid': loaded_pid,
+                'uptime_seconds': offset_uptime_seconds + loaded_uptime_seconds,
+                'uptime_seconds_old': current_uptime_seconds
+            }
+
+        # different process
+        elif name in current_processes and loaded_pid not in current_pids:
+            current_uptime_seconds = current_processes[name]['uptime_seconds']
+            new_processes[name] = {
+                'pid': current_processes[name]['pid'],
+                'uptime_seconds': current_uptime_seconds + loaded_uptime_seconds,
+                'uptime_seconds_old': current_uptime_seconds
+            }
+        # not in current processes (might be closed)
+        else:
+            new_processes[name] = {
+                'pid': loaded_pid,
+                'uptime_seconds': loaded_uptime_seconds,
+                'uptime_seconds_old': loaded_uptime_seconds_old
+            }
+
+    with open(LOG_FILE, "w") as f:
+        json.dump(new_processes, f, indent=4)
+
+if __name__ == "__main__":
+    while True:
+        list_processes()
+        time.sleep(30)
