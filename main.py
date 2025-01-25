@@ -18,8 +18,8 @@ def list_processes():
             if os.stat(LOG_FILE).st_size != 0:
                 loaded_processes = json.load(f)
 
-    # current process
-    for proc in psutil.process_iter(['pid', 'name', 'username', 'create_time']):
+    # current processes, this gets the highest uptime of multiple same processes (e.g. multiple notepad.exe)
+    for proc in psutil.process_iter(['pid', 'name', 'create_time']):
         try:
             info = proc.info
 
@@ -31,15 +31,14 @@ def list_processes():
             # if info['name'] != "Notepad.exe":
             #     continue
 
-            start_time = datetime.fromtimestamp(info['create_time'])
-            
             pid = info['pid']
             name = info['name']
+
+            start_time = datetime.fromtimestamp(info['create_time'])
             uptime = datetime.now() - start_time
             total_seconds = uptime.total_seconds()
 
             if name not in current_processes or total_seconds > float(current_processes[name]['uptime_seconds']):
-                
                 current_processes[name] = {
                     'pid': pid,
                     'uptime_seconds': total_seconds,
