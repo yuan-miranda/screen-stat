@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <select id="logs">
+        <option value="0">Select a log file</option>
+    </select>
+    <pre id="log-content"></pre>
+    <script>
+        async function getLogs() {
+            try {
+                const response = await fetch('/logs');
+                const files = await response.json();
+                const logs = document.getElementById('logs');
+                files.forEach(file => {
+                    const option = document.createElement('option');
+                    option.value = file;
+                    option.text = file;
+                    logs.appendChild(option);
+                });
+
+                logs.addEventListener('change', async () => {
+                    const logContent = document.getElementById('log-content');
+                    const filename = logs.value;
+                    localStorage.setItem('filename', filename);
+                    if (filename === '0') return logContent.textContent = '';
+
+                    updateLogContent(filename);
+                    setInterval(() => {
+                        updateLogContent(filename);
+                    }, 1000);
+                });
+
+                const filename = localStorage.getItem('filename');
+                if (filename) {
+                    logs.value = filename;
+                    logs.dispatchEvent(new Event('change'));
+                }
+            } catch (error) {
+                console.error(error);
+            }
+        }
+
+        async function updateLogContent(filename) {
+            try {
+                const response = await fetch(`/logs/${filename}`);
+                const content = await response.json();
+                const logContent = document.getElementById('log-content');
+                logContent.textContent = content;
+            } catch (error) {
+                console.error(error);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            getLogs();
+        });
+    </script>
+</body>
+
+</html>
