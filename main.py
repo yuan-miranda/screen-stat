@@ -7,25 +7,32 @@ import os
 CURRENT_DATE = datetime.now().strftime("%Y-%m-%d")
 LOG_FILE = f"logs/{CURRENT_DATE}.json"
 LOG_FILE_CUMULATIVE = "logs/cumulative.json"
+INCLUDE_ONLY_FILE = "processes.json"
 
-INCLUDE_ONLY = []
-
-# read from the include file
-if os.path.exists("include.txt"):
-    with open("include.txt", "r") as f:
-        INCLUDE_ONLY = f.read().splitlines()
-
-def list_processes():
+def list_processes(log_file):
     current_processes = {}
+    loaded_data = {}
     loaded_processes = {}
     current_processes_new = {}
+    include_only_processes = []
 
-    if os.path.exists(LOG_FILE):
-        with open(LOG_FILE, "r") as f:
-            if os.stat(LOG_FILE).st_size != 0:
-                loaded_processes = json.load(f)
+    if os.path.exists(log_file):
+        with open(log_file, "r") as f:
+            if os.stat(log_file).st_size != 0:
+                loaded_data = json.load(f)
+                loaded_processes = loaded_data.get("all", {})
     else:
-        os.makedirs("logs", exist_ok=True)
+        with open(log_file, "w") as f:
+            json.dump({ "all": {}, "filtered": {} }, f, indent=4)
+
+    if os.path.exists(INCLUDE_ONLY_FILE):
+        with open(INCLUDE_ONLY_FILE, "r") as f:
+            if os.stat(INCLUDE_ONLY_FILE).st_size != 0:
+                include_only_processes = json.load(f)
+    else:
+        with open(INCLUDE_ONLY_FILE, "w") as f:
+            json.dump([], f, indent=4)
+            
 
     # get only the highest uptime of multiple same processes
     for proc in psutil.process_iter(['pid', 'name', 'create_time']):
@@ -34,8 +41,8 @@ def list_processes():
             pid = info['pid']
             name = info['name']
 
-            if INCLUDE_ONLY and name not in INCLUDE_ONLY:
-                continue
+            # if name not in include_only_processes:
+            #     continue
 
             start_time = datetime.fromtimestamp(info['create_time'])
             uptime = datetime.now() - start_time
@@ -55,7 +62,6 @@ def list_processes():
     # add processes that are not in current processes
     loaded_processes_set = set(loaded_processes)
     current_processes_new = {name: process for name, process in current_processes.items() if name not in loaded_processes_set}
-
     current_pids = {process['pid'] for process in current_processes.values()}
 
     # same process: (current - loaded_old) + loaded
@@ -93,10 +99,15 @@ def list_processes():
                 'uptime_seconds_old': loaded_uptime_seconds_old
             }
 
-    with open(LOG_FILE, "w") as f:
-        json.dump(current_processes_new, f, indent=4)
+    filtered_processes = {name: process for name, process in current_processes_new.items() if name in include_only_processes}
+
+    with open(log_file, "w") as f:
+        json.dump({
+            "all": current_processes_new,
+            "filtered": filtered_processes
+        }, f, indent=4)
 
 if __name__ == "__main__":
     while True:
-        list_processes()
+        list_processes(LOG_FILE)
         time.sleep(1)

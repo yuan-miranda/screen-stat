@@ -4,13 +4,136 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Document</title>
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        .processes-container {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.25em;
+        }
+
+        #processes {
+            display: flex;
+            list-style-type: none;
+            margin: 0 0 0 0.25em;
+            padding: 0;
+        }
+
+        #processes li {
+            position: relative;
+            background-color: #f0f0f0;
+            margin-right: 0.25em;
+            padding: 0 0.25em;
+            border-radius: 0.25em;
+            transition: filter 0.3s ease;
+        }
+
+        #processes li:hover .process-name {
+            user-select: none;
+            filter: blur(1px);
+        }
+
+        #processes li:hover .delete-btn {
+            display: block;
+        }
+
+        .delete-btn {
+            display: none;
+            text-align: center;
+            background-color: transparent;
+            border: none;
+            outline: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            cursor: pointer;
+        }
+    </style>
+    
 </head>
 <body>
+    <div class="processes-container">
+        <button id="add-process">+</button>
+        <ul id="processes"></ul>
+    </div>
     <select id="logs">
         <option value="0">Select a log file</option>
     </select>
     <pre id="log-content"></pre>
     <script>
+        async function removeProcess(processName) {
+            try {
+                await fetch('/processes', {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ processName })
+                });
+            } catch (error) {
+                console.error(error);
+            }
+        }
+
+        async function saveProcess(processName) {
+            try {
+                await fetch('/processes', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ processName })
+                });
+            } catch (error) {
+                console.error(error);
+            }
+        }
+        
+        async function loadProcesses() {
+            try {
+                const response = await fetch('/processes');
+                const processes = await response.json();
+                const processesList = document.getElementById('processes');
+                processes.forEach(process => addProcess(process, true));
+            } catch (error) {
+                console.error(error);
+            }
+        }
+
+        function addProcess(processName, isLoaded = false) {
+            if (processName) {
+                const processesList = document.getElementById('processes');
+                const listItem = document.createElement('li');
+                const span = document.createElement('span');
+                const deleteBtn = document.createElement('button');
+
+                span.textContent = processName;
+                span.className = 'process-name';
+
+                deleteBtn.textContent = 'X';
+                deleteBtn.className = 'delete-btn';
+                deleteBtn.ondblclick = () => {
+                    processesList.removeChild(listItem);
+                    removeProcess(processName);
+                };
+
+                listItem.appendChild(span);
+                listItem.appendChild(deleteBtn);
+                processesList.appendChild(listItem);
+
+                if (!isLoaded) saveProcess(processName);
+            }
+        }
+
+        function addProcessListener() {
+            const processName = prompt('Enter the name of the process to add:');
+            if (processName) addProcess(processName);
+        }
+
         async function getLogs() {
             try {
                 const response = await fetch('/logs');
@@ -24,13 +147,14 @@
                 });
 
                 logs.addEventListener('change', async () => {
+                    if (window.intervalId) clearInterval(window.intervalId);
+                    
                     const logContent = document.getElementById('log-content');
                     const filename = logs.value;
                     localStorage.setItem('filename', filename);
                     if (filename === '0') return logContent.textContent = '';
 
-                    updateLogContent(filename);
-                    setInterval(() => {
+                    window.intervalId = setInterval(() => {
                         updateLogContent(filename);
                     }, 1000);
                 });
@@ -50,13 +174,19 @@
                 const response = await fetch(`/logs/${filename}`);
                 const content = await response.json();
                 const logContent = document.getElementById('log-content');
-                logContent.textContent = content;
+                logContent.textContent = JSON.stringify(content, null, 2);
             } catch (error) {
                 console.error(error);
             }
         }
 
+        function eventListener() {
+            document.getElementById('add-process').addEventListener('click', addProcessListener);
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
+            eventListener();
+            loadProcesses();
             getLogs();
         });
     </script>
